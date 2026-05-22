@@ -38,8 +38,8 @@ class PortfolioRepository(
             f == "EUR" && t == "USD" -> 1.0 / 0.92
             f == "EUR" && t == "CAD" -> 1.48
             f == "CAD" && t == "EUR" -> 1.0 / 1.48
-            f == "USD" && t == "INR" -> 83.5
-            f == "INR" && t == "USD" -> 1.0 / 83.5
+            f == "USD" && t == "INR" -> 96.5
+            f == "INR" && t == "USD" -> 1.0 / 96.5
             f == "EUR" && t == "INR" -> 90.7
             f == "INR" && t == "EUR" -> 1.0 / 90.7
             f == "CAD" && t == "INR" -> 61.4
@@ -79,17 +79,24 @@ class PortfolioRepository(
     }
 
     // CALCULATED FLOWS: HOLDINGS
-    fun getHoldingsFlow(displayCurrency: String): Flow<List<Holding>> {
+    fun getHoldingsFlow(displayCurrency: String, accountId: Long? = null): Flow<List<Holding>> {
         return combine(
             investmentsFlow,
             transactionsFlow,
             currencyRatesFlow,
             accountsFlow
         ) { investments, transactions, rates, accounts ->
+            // Filter transactions if accountId is provided
+            val filteredTransactions = if (accountId != null) {
+                transactions.filter { it.accountId == accountId }
+            } else {
+                transactions
+            }
+            
             val holdingsList = mutableListOf<Holding>()
 
             for (investment in investments) {
-                val tickerTx = transactions.filter { it.ticker.uppercase() == investment.ticker.uppercase() }
+                val tickerTx = filteredTransactions.filter { it.ticker.uppercase() == investment.ticker.uppercase() }
                     .sortedBy { it.dateMillis }
 
                 var totalShares = 0.0
@@ -115,6 +122,10 @@ class PortfolioRepository(
                                 totalShares = 0.0
                                 totalCostInBaseValue = 0.0
                             }
+                        }
+                        "ROC", "RETURN_OF_CAPITAL" -> {
+                            totalCostInBaseValue -= tx.totalAmount
+                            if (totalCostInBaseValue < 0) totalCostInBaseValue = 0.0
                         }
                         "SPLIT" -> {
                             // Split shares added
@@ -184,13 +195,20 @@ class PortfolioRepository(
     }
 
     // PORTFOLIO SUMMARY
-    fun getPortfolioSummaryFlow(displayCurrency: String): Flow<PortfolioSummary> {
+    fun getPortfolioSummaryFlow(displayCurrency: String, accountId: Long? = null): Flow<PortfolioSummary> {
         return combine(
-            getHoldingsFlow(displayCurrency),
+            getHoldingsFlow(displayCurrency, accountId),
             transactionsFlow,
             currencyRatesFlow,
             accountsFlow
         ) { holdings, transactions, rates, accounts ->
+            // Filter transactions if accountId is provided
+            val filteredTransactions = if (accountId != null) {
+                transactions.filter { it.accountId == accountId }
+            } else {
+                transactions
+            }
+            
             var totalValue = 0.0
             var totalCost = 0.0
             var totalDividendsReceived = 0.0
@@ -202,7 +220,7 @@ class PortfolioRepository(
             }
 
             // Also search all transaction log for any leftover / account-wide dividends not bound to active holdings
-            val divTransactions = transactions.filter { it.type.uppercase() == "DIVIDEND" }
+            val divTransactions = filteredTransactions.filter { it.type.uppercase() == "DIVIDEND" }
             var calcTotalDividendsInDisplay = 0.0
             for (tx in divTransactions) {
                 // Find account currency
@@ -373,6 +391,10 @@ class PortfolioRepository(
                                 tempCostBasis = tempShares * prevCostBasis
                             }
                         }
+                        "ROC", "RETURN_OF_CAPITAL" -> {
+                            tempCostBasis -= tx.totalAmount
+                            if (tempCostBasis < 0) tempCostBasis = 0.0
+                        }
                         "SPLIT" -> {
                             tempShares += tx.shares
                         }
@@ -542,7 +564,9 @@ class PortfolioRepository(
     // LIVE PRICE ONLINE SYNC (REFRESHES SQLITE ENTIRE PRICE MAP VIA GEMINI COGENT WEBLOOKUP)
     suspend fun refreshAllPricesWithGemini(apiKey: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val investList = investmentDao.getAllInvestments()
-        if (investList.isEmpty()) return@withContext Pair(false, "No registered investments detected to refresh.")
+        val currencyRates = currencyRateDao.getAllRates()
+        
+        if (investList.isEmpty() && currencyRates.isEmpty()) return@withContext Pair(false, "No registered investments or fiat currencies detected to refresh.")
         
         // Hybrid Smart-Broker segregation: Filter out Private Equity & manual assets
         // Only fetch live prices for listed public stocks, cryptos, and listed RSUs
@@ -552,35 +576,36 @@ class PortfolioRepository(
             !it.ticker.contains("PRIVATE", ignoreCase = true)
         }
 
-        if (listedInvestments.isEmpty()) {
-            return@withContext Pair(true, "All registered assets are Private Equity or custom manual assets. Live sync skipped for these.")
-        }
-        
         val tickersPrompt = listedInvestments.joinToString("\n") { "• Ticker: ${it.ticker}, Company Name: ${it.name}, Base Currency: ${it.baseCurrency}" }
+        val currencyPrompt = currencyRates.joinToString("\n") { "• Forex Pair: ${it.currencyPair}" }
         
         val prompt = """
             You are a real-time stock broker agent connected to Google Finance search.
-            Conduct a live web lookup to obtain the latest actual current trading stock / crypto / instrument price for these specific tickers.
-            Return the output ONLY as a valid JSON object mapping ticker names directly to floating-point prices in their respective base currencies listed below.
+            Conduct a live web lookup to obtain the latest actual current trading stock / crypto / instrument price for these specific tickers, and the current exchange rate for the forex pairs.
+            Return the output ONLY as a valid JSON object mapping ticker names AND forex pair names directly to floating-point prices/rates.
             Do NOT include any extra text words or outer markdown blocks like ```json.
             
             Tickers info:
             $tickersPrompt
             
+            Forex Pairs info:
+            $currencyPrompt
+            
             Required response format example:
             {
               "AAPL": 185.40,
               "MSFT": 422.15,
-              "STRIPE-PVT": 23.00,
               "COGN-RSU": 72.50,
               "RELIANCE": 2450.00,
-              "ETH": 3120.00
+              "ETH": 3120.00,
+              "USD/EUR": 0.92,
+              "USD/CAD": 1.36
             }
         """.trimIndent()
         
         try {
             val result = GeminiClient.generateContent(apiKey, prompt)
-            val cleanResult = result.removeSurrounding("```json", "```").trim()
+            val cleanResult = result.removeSurrounding("```json", "```").removeSurrounding("```", "```").trim()
             
             val map = mutableMapOf<String, Double>()
             val pattern = "\"([^\"]+)\"\\s*:\\s*([0-9.]+)"
@@ -599,25 +624,39 @@ class PortfolioRepository(
                     val variation = 1.0 + ((Math.random() - 0.48) * 0.04)
                     investmentDao.insertInvestment(inv.copy(currentPrice = inv.currentPrice * variation))
                 }
-                return@withContext Pair(true, "Refreshed prices locally via market simulations (Internet Lookup ready).")
+                for (rate in currencyRates) {
+                    val variation = 1.0 + ((Math.random() - 0.50) * 0.01)
+                    currencyRateDao.insertRate(rate.copy(rate = rate.rate * variation))
+                }
+                return@withContext Pair(true, "Refreshed prices & rates locally via market simulations (Internet Lookup fallback).")
             }
             
             var updatedCount = 0
-            for ((ticker, price) in map) {
-                val dbInv = listedInvestments.find { it.ticker.uppercase() == ticker }
+            for ((key, price) in map) {
+                val dbRate = currencyRates.find { it.currencyPair.uppercase() == key }
+                if (dbRate != null) {
+                    currencyRateDao.insertRate(dbRate.copy(rate = price))
+                    updatedCount++
+                    continue
+                }
+                val dbInv = listedInvestments.find { it.ticker.uppercase() == key }
                 if (dbInv != null) {
                     investmentDao.insertInvestment(dbInv.copy(currentPrice = price))
                     updatedCount++
                 }
             }
             
-            return@withContext Pair(true, "Successfully refreshed $updatedCount ticker prices in database using real Google Finance values!")
+            return@withContext Pair(true, "Successfully refreshed $updatedCount prices & exchange rates using live finance values!")
         } catch (e: Exception) {
             for (inv in listedInvestments) {
                 val variation = 1.0 + ((Math.random() - 0.48) * 0.03)
                 investmentDao.insertInvestment(inv.copy(currentPrice = inv.currentPrice * variation))
             }
-            return@withContext Pair(true, "Refreshed prices instantly via local market fluctuation simulations.")
+            for (rate in currencyRates) {
+                val variation = 1.0 + ((Math.random() - 0.50) * 0.01)
+                currencyRateDao.insertRate(rate.copy(rate = rate.rate * variation))
+            }
+            return@withContext Pair(true, "Refreshed prices & rates instantly via local market fluctuation simulations.")
         }
     }
 
@@ -637,6 +676,7 @@ class PortfolioRepository(
     suspend fun addUpcomingDividend(upcoming: UpcomingDividend): Long = upcomingDividendDao.insertUpcomingDividend(upcoming)
     suspend fun updateUpcomingDividend(upcoming: UpcomingDividend) = upcomingDividendDao.updateUpcomingDividend(upcoming)
     suspend fun deleteUpcomingDividend(upcoming: UpcomingDividend) = upcomingDividendDao.deleteUpcomingDividend(upcoming)
+    suspend fun updateCurrencyRate(rate: CurrencyRate) = currencyRateDao.insertRate(rate)
 
     // SEEDING METHOD
     suspend fun seedInitialDataIfEmpty() {
@@ -776,6 +816,6 @@ class PortfolioRepository(
         // 5. Seed Currency Rates
         currencyRateDao.insertRate(CurrencyRate("USD/EUR", 0.92))
         currencyRateDao.insertRate(CurrencyRate("USD/CAD", 1.36))
-        currencyRateDao.insertRate(CurrencyRate("USD/INR", 83.50))
+        currencyRateDao.insertRate(CurrencyRate("USD/INR", 96.50))
     }
 }

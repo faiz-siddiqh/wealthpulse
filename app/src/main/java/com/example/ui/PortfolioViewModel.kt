@@ -24,8 +24,12 @@ class PortfolioViewModel(
 ) : AndroidViewModel(application) {
 
     // Selected Display Currency
-    private val _selectedCurrency = MutableStateFlow("USD")
+    private val _selectedCurrency = MutableStateFlow("$")
     val selectedCurrency: StateFlow<String> = _selectedCurrency.asStateFlow()
+
+    // Selected Account for Filtering
+    private val _selectedAccountId = MutableStateFlow<Long?>(null)
+    val selectedAccountId: StateFlow<Long?> = _selectedAccountId.asStateFlow()
 
     // Selected Tab
     private val _currentTab = MutableStateFlow("Dashboard")
@@ -51,7 +55,7 @@ class PortfolioViewModel(
     private val _email = MutableStateFlow(prefs.getString("email", "fasiddiqh72@gmail.com") ?: "fasiddiqh72@gmail.com")
     val email = _email.asStateFlow()
 
-    private val _selectedAvatar = MutableStateFlow(prefs.getString("selected_avatar", "Phoenix") ?: "Phoenix")
+    private val _selectedAvatar = MutableStateFlow(prefs.getString("selected_avatar", "🤖") ?: "🤖")
     val selectedAvatar = _selectedAvatar.asStateFlow()
 
     private val _themeMode = MutableStateFlow(prefs.getString("theme_mode", "Cosmic Slate") ?: "Cosmic Slate")
@@ -78,14 +82,25 @@ class PortfolioViewModel(
     val transactions: StateFlow<List<Transaction>> = repository.transactionsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // DYNAMIC AND CALCULATED DATA, REACTIVE TO CURRENCY SELECTION
-    val holdings: StateFlow<List<Holding>> = _selectedCurrency
-        .flatMapLatest { currency -> repository.getHoldingsFlow(currency) }
+    val currencyRates: StateFlow<List<CurrencyRate>> = repository.currencyRatesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val summary: StateFlow<PortfolioSummary?> = _selectedCurrency
-        .flatMapLatest { currency -> repository.getPortfolioSummaryFlow(currency) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    // DYNAMIC AND CALCULATED DATA, REACTIVE TO CURRENCY SELECTION AND ACCOUNT SELECTION
+    val holdings: StateFlow<List<Holding>> = _selectedAccountId.flatMapLatest { accountId ->
+        _selectedCurrency.flatMapLatest { currency -> 
+            repository.getHoldingsFlow(currency, accountId) 
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allHoldings: StateFlow<List<Holding>> = _selectedCurrency.flatMapLatest { currency ->
+        repository.getHoldingsFlow(currency, null)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val summary: StateFlow<PortfolioSummary?> = _selectedAccountId.flatMapLatest { accountId ->
+        _selectedCurrency.flatMapLatest { currency ->
+            repository.getPortfolioSummaryFlow(currency, accountId)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val categoryAllocations: StateFlow<List<GroupedAllocation>> = _selectedCurrency
         .flatMapLatest { currency -> repository.getCategoryAllocationsFlow(currency) }
@@ -184,6 +199,10 @@ class PortfolioViewModel(
     // ACTIONS
     fun selectCurrency(currency: String) {
         _selectedCurrency.value = currency
+    }
+
+    fun selectAccount(accountId: Long?) {
+        _selectedAccountId.value = accountId
     }
 
     fun selectTab(tab: String) {
@@ -447,6 +466,29 @@ class PortfolioViewModel(
     fun addAccount(name: String, currency: String) {
         viewModelScope.launch {
             repository.addAccount(Account(name = name.trim(), currency = currency))
+        }
+    }
+
+    fun updateAccount(id: Long, name: String, currency: String) {
+        viewModelScope.launch {
+            repository.updateAccount(Account(id = id, name = name.trim(), currency = currency))
+        }
+    }
+
+    fun deleteAccount(id: Long) {
+        viewModelScope.launch {
+            val accs = accounts.value
+            val acc = accs.find { it.id == id }
+            if (acc != null) {
+                repository.deleteAccount(acc)
+            }
+        }
+    }
+
+    // CURRENCY RATES
+    fun updateCurrencyRate(pair: String, rate: Double) {
+        viewModelScope.launch {
+            repository.updateCurrencyRate(CurrencyRate(pair, rate))
         }
     }
 
