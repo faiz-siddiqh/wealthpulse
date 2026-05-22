@@ -2977,6 +2977,96 @@ fun SettingsScreen(viewModel: PortfolioViewModel) {
                 )
             )
 
+            // Profile Section
+            SectionCard("Profile") {
+                var editUsername by remember(username) { mutableStateOf(username) }
+                var editFullName by remember(fullName) { mutableStateOf(fullName) }
+                var editEmail by remember(email) { mutableStateOf(email) }
+
+                OutlinedTextField(
+                    value = editUsername,
+                    onValueChange = { editUsername = it },
+                    label = { Text("Display Name", color = MutedText) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = PureWhite, unfocusedTextColor = PureWhite,
+                        focusedContainerColor = CharcoalSurface, unfocusedContainerColor = CharcoalSurface
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = editFullName,
+                    onValueChange = { editFullName = it },
+                    label = { Text("Full Name", color = MutedText) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = PureWhite, unfocusedTextColor = PureWhite,
+                        focusedContainerColor = CharcoalSurface, unfocusedContainerColor = CharcoalSurface
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = editEmail,
+                    onValueChange = { editEmail = it },
+                    label = { Text("Email Address", color = MutedText) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = PureWhite, unfocusedTextColor = PureWhite,
+                        focusedContainerColor = CharcoalSurface, unfocusedContainerColor = CharcoalSurface
+                    )
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { viewModel.updateProfile(editUsername, editFullName, editEmail, selectedAvatar) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                ) {
+                    Text("Save Profile", color = CharcoalSurface, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Data Import & Backup Section
+            SectionCard("Data Import & Backup") {
+                val context = LocalContext.current
+                val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                ) { uri ->
+                    if (uri != null) {
+                        viewModel.importDataFromFile(context, uri)
+                        android.widget.Toast.makeText(context, "Data imported successfully", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
+                Text("Import Data", color = PureWhite, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Import trade logs or accounts via CSV/Excel formats.", color = MutedText, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { importLauncher.launch("*/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldPrimary)
+                ) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = "Import", tint = EmeraldPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Select File to Import", color = EmeraldPrimary)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Backup", color = PureWhite, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.exportData(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldPrimary)
+                ) {
+                    Icon(Icons.Filled.FileUpload, contentDescription = "Export", tint = EmeraldPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export Data", color = EmeraldPrimary)
+                }
+            }
+
             // General Settings Section
             SectionCard("General") {
                 Text("Base Currency", color = PureWhite, fontWeight = FontWeight.SemiBold)

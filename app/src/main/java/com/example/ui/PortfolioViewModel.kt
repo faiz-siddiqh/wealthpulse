@@ -519,6 +519,74 @@ class PortfolioViewModel(
         }
     }
 
+    // DATA IMPORT & EXPORT
+    fun importDataFromFile(context: Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
+                    var isFirstLine = true
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (isFirstLine) {
+                            isFirstLine = false
+                            continue
+                        }
+                        val tokens = line.split(",")
+                        if (tokens.size >= 8) {
+                            // Expected generic format: dateMillis, ticker, type, shares, price, totalAmount, accountId, notes
+                            try {
+                                val tx = Transaction(
+                                    dateMillis = tokens[0].toLongOrNull() ?: System.currentTimeMillis(),
+                                    ticker = tokens[1],
+                                    type = tokens[2],
+                                    shares = tokens[3].toDoubleOrNull() ?: 0.0,
+                                    price = tokens[4].toDoubleOrNull() ?: 0.0,
+                                    totalAmount = tokens[5].toDoubleOrNull() ?: 0.0,
+                                    accountId = tokens[6].toLongOrNull() ?: 1L,
+                                    notes = if (tokens.size > 7) tokens[7] else ""
+                                )
+                                repository.addTransaction(tx)
+                            } catch (e: Exception) {
+                                // Skip invalid lines
+                            }
+                        }
+                    }
+                }
+                _importStatusMessage.value = "Import successful"
+                android.widget.Toast.makeText(context, "Data imported successfully", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                _importStatusMessage.value = "Import failed: ${e.message}"
+                android.widget.Toast.makeText(context, "Import failed", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun exportData(context: Context) {
+        viewModelScope.launch {
+            try {
+                val txs = transactions.value
+                val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+                val fileName = "WealthPulse_Backup_$timestamp.csv"
+                
+                // Write to Download directory or cache
+                val cacheFile = java.io.File(context.cacheDir, fileName)
+                cacheFile.printWriter().use { out ->
+                    out.println("dateMillis,ticker,type,shares,price,totalAmount,accountId,notes")
+                    txs.forEach { tx ->
+                        out.println("${tx.dateMillis},${tx.ticker},${tx.type},${tx.shares},${tx.price},${tx.totalAmount},${tx.accountId},${tx.notes.replace(","," ")}")
+                    }
+                }
+                
+                _lastBackupTime.value = java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                prefs.edit().putString("last_backup_time", _lastBackupTime.value).apply()
+                android.widget.Toast.makeText(context, "Data exported to ${cacheFile.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Export failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // EMAIL ALERT SERVICE SIMULATOR
     fun triggerEmailAlertSimulation() {
         val emailTarget = "fasiddiqh72@gmail.com"
