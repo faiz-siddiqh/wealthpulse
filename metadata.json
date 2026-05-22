@@ -1,0 +1,6 @@
+{
+  "name": "WealthPulse",
+  "description": "A scalable, full-featured investment portfolio tracker for accounts, trades, holdings, dividends, benchmarks, and automated payout alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
