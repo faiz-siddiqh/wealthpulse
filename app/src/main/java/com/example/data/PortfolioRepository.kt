@@ -22,6 +22,13 @@ class PortfolioRepository(
     val currencyRatesFlow: Flow<List<CurrencyRate>> = currencyRateDao.getAllRatesFlow()
 
     // CURRENCY CONVERSION HELPERS
+    suspend fun wipeAllData() {
+        accountDao.deleteAllAccounts()
+        investmentDao.deleteAllInvestments()
+        transactionDao.deleteAllTransactions()
+        upcomingDividendDao.deleteAllUpcomingDividends()
+    }
+
     private suspend fun getConversionRate(from: String, to: String): Double {
         val rates = currencyRateDao.getAllRates()
         return getConversionRateSync(from, to, rates)

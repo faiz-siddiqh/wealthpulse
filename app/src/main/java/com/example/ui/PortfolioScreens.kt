@@ -3065,6 +3065,20 @@ fun SettingsScreen(viewModel: PortfolioViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Export Data", color = EmeraldPrimary)
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Danger Zone", color = Color.Red, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.wipeAllData(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = CharcoalSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Wipe Data", tint = Color.Red)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Wipe All Data", color = Color.Red)
+                }
             }
 
             // General Settings Section

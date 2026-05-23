@@ -485,6 +485,17 @@ class PortfolioViewModel(
         }
     }
 
+    fun wipeAllData(context: Context) {
+        viewModelScope.launch {
+            try {
+                repository.wipeAllData()
+                android.widget.Toast.makeText(context, "All data wiped successfully", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Failed to wipe data", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // CURRENCY RATES
     fun updateCurrencyRate(pair: String, rate: Double) {
         viewModelScope.launch {
@@ -534,10 +545,29 @@ class PortfolioViewModel(
                         }
                         val tokens = line.split(",")
                         if (tokens.size >= 8) {
-                            // Expected generic format: dateMillis, ticker, type, shares, price, totalAmount, accountId, notes
+                            // Expected generic format: date, ticker, type, shares, price, totalAmount, accountId, notes
                             try {
+                                var parsedDateMillis = System.currentTimeMillis()
+                                val dateStr = tokens[0]
+                                val millis = dateStr.toLongOrNull()
+                                if (millis != null && millis > 1000000L) {
+                                    parsedDateMillis = millis
+                                } else {
+                                    try {
+                                        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                                        val parsedDate = formatter.parse(dateStr)
+                                        if (parsedDate != null) parsedDateMillis = parsedDate.time
+                                    } catch (e: Exception) {
+                                        try {
+                                            val formatter2 = java.text.SimpleDateFormat("MM/dd/yyyy", java.util.Locale.getDefault())
+                                            val parsedDate2 = formatter2.parse(dateStr)
+                                            if (parsedDate2 != null) parsedDateMillis = parsedDate2.time
+                                        } catch (e2: Exception) {}
+                                    }
+                                }
+
                                 val tx = Transaction(
-                                    dateMillis = tokens[0].toLongOrNull() ?: System.currentTimeMillis(),
+                                    dateMillis = parsedDateMillis,
                                     ticker = tokens[1],
                                     type = tokens[2],
                                     shares = tokens[3].toDoubleOrNull() ?: 0.0,
@@ -546,6 +576,29 @@ class PortfolioViewModel(
                                     accountId = tokens[6].toLongOrNull() ?: 1L,
                                     notes = if (tokens.size > 7) tokens[7] else ""
                                 )
+
+                                // Auto-create Investment if it doesn't exist
+                                val inv = repository.investmentsFlow.first().find { it.ticker.uppercase() == tx.ticker.uppercase() }
+                                if (inv == null) {
+                                    repository.addInvestment(
+                                        Investment(
+                                            ticker = tx.ticker.uppercase(),
+                                            name = tx.ticker.uppercase(),
+                                            category = "Imported",
+                                            sector = "Other",
+                                            targetAllocation = 0.0,
+                                            currentPrice = tx.price,
+                                            baseCurrency = "USD"
+                                        )
+                                    )
+                                }
+
+                                // Auto-create Account if it doesn't exist
+                                val acc = repository.accountsFlow.first().find { it.id == tx.accountId }
+                                if (acc == null) {
+                                    repository.addAccount(Account(id = tx.accountId, name = "Imported Account ${tx.accountId}", currency = "USD"))
+                                }
+
                                 repository.addTransaction(tx)
                             } catch (e: Exception) {
                                 // Skip invalid lines

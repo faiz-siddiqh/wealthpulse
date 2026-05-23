@@ -17,6 +17,9 @@ interface AccountDao {
     @Update
     suspend fun updateAccount(account: Account)
 
+    @Query("DELETE FROM accounts")
+    suspend fun deleteAllAccounts()
+
     @Delete
     suspend fun deleteAccount(account: Account)
 }
@@ -34,6 +37,9 @@ interface InvestmentDao {
 
     @Update
     suspend fun updateInvestment(investment: Investment)
+
+    @Query("DELETE FROM investments")
+    suspend fun deleteAllInvestments()
 
     @Delete
     suspend fun deleteInvestment(investment: Investment)
@@ -59,6 +65,9 @@ interface TransactionDao {
     @Update
     suspend fun updateTransaction(transaction: Transaction)
 
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAllTransactions()
+
     @Delete
     suspend fun deleteTransaction(transaction: Transaction)
 
@@ -76,6 +85,9 @@ interface UpcomingDividendDao {
 
     @Update
     suspend fun updateUpcomingDividend(upcomingDividend: UpcomingDividend)
+
+    @Query("DELETE FROM upcoming_dividends")
+    suspend fun deleteAllUpcomingDividends()
 
     @Delete
     suspend fun deleteUpcomingDividend(upcomingDividend: UpcomingDividend)
